@@ -1,16 +1,59 @@
-# This is a sample Python script.
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from cv_parser import extract_text_from_docx, extract_text_from_pdf
+from dotenv import load_dotenv
+from pydantic import BaseModel
+from llm_utils import extract_profile_from_cv, generate_career_advice
+import os
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+class OnboardingData(BaseModel):
+    role: str
+    level: str
 
+class AdviceRequest(BaseModel):
+    profile: dict
+    role: str
+    level: str
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+@app.post("/upload_cv")
+async def upload_cv(file: UploadFile = File(...)):
+    contents = await file.read()
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    if file.filename.endswith(".pdf"):
+        text = extract_text_from_pdf(contents)
+    elif file.filename.endswith(".docx"):
+        text = extract_text_from_docx(contents)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Please use PDF or DOCX.")
+
+    return {
+        "filename": file.filename,
+        "text": text
+    }
+
+@app.post("/analyze_profile")
+async def analyze_profile(data: dict):
+    cv_text = data.get("cv_text", "")
+    if not cv_text:
+        raise HTTPException(status_code=400, detail="CV text is required.")
+
+    result = extract_profile_from_cv(cv_text)
+    return {"profile": result}
+
+@app.post("/generate_advice")
+async def generate_advice(data: AdviceRequest):
+    try:
+        advice = generate_career_advice(data.profile, data.role, data.level)
+        return {"advice": advice}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
