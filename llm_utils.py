@@ -60,7 +60,7 @@ def generate_career_advice(profile_json, role, level):
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
-            {"role": "system", "content": "You are a helpful career coach."},
+            {"role": "system", "content": "You are a career coach that help people achieve their goals."},
             {"role": "user", "content": prompt}
         ]
     )
