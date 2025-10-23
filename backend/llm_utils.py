@@ -47,7 +47,7 @@ def generate_career_advice(profile_json, role, level):
     Their experience level is: {level}
 
     Please do two things:
-    1. Give a detailed, personalized career roadmap for this user.
+    1. Give a detailed and personalized roadmap to help the user achieve their goals.
     2. Also, give a 'role_fit_score' between 0 and 100 indicating how ready they are for this dream role.
 
     Respond in this exact JSON format:
