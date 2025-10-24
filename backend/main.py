@@ -20,7 +20,7 @@ class OnboardingData(BaseModel):
     role: str
     level: str
 
-class AdviceRequest(BaseModel):
+class ProfileInput(BaseModel):
     profile: dict
     role: str
     level: str
@@ -51,9 +51,10 @@ async def analyze_profile(data: dict):
     return {"profile": result}
 
 @app.post("/generate_advice")
-async def generate_advice(data: AdviceRequest):
+async def generate_advice(data: ProfileInput):
     try:
-        advice = generate_career_advice(data.profile, data.role, data.level)
-        return {"advice": advice}
+        result = generate_career_advice(data.profile, data.role, data.level)
+        return {"advice": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print("Error generating advice:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate advice.")

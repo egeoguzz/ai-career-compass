@@ -46,21 +46,21 @@ def generate_career_advice(profile_json, role, level):
     Their dream role is: {role}
     Their experience level is: {level}
 
-    Please do two things:
-    1. Give a detailed, personalized career roadmap for this user.
-    2. Also, give a 'role_fit_score' between 0 and 100 indicating how ready they are for this dream role.
-
-    Respond in this exact JSON format:
+    Based on this, generate the following in JSON format:
     {{
-      "career_advice": "...",
-      "role_fit_score": 73
+      "career_advice": "string - a paragraph of tailored advice",
+      "missing_skills": ["string", "string"],
+      "learning_path": ["string - step 1", "string - step 2", "..."],
+      "role_fit_score": number - from 0 to 100 (how ready are they for the goal?)
     }}
+    
+    Only return valid JSON. Do not add explanations.
     """
 
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[
-            {"role": "system", "content": "You are a career coach that help people achieve their goals."},
+            {"role": "system", "content": "You are a career coach."},
             {"role": "user", "content": prompt}
         ]
     )
