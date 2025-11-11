@@ -1,0 +1,8 @@
+[
+  {
+    "title": "PyTorch Official Tutorial – Introduction",
+    "topic": "pytorch",
+    "url": "https://docs.pytorch.org/tutorials/beginner/basics/intro.html",
+    "content": "An introductory PyTorch tutorial that explains tensors, neural networks, and basic training loops for beginners."
+  }
+]

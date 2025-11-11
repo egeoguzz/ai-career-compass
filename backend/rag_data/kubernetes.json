@@ -1,0 +1,8 @@
+[
+  {
+    "title": "Kubernetes Basics Tutorial",
+    "topic": "kubernetes",
+    "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/",
+    "content": "A hands-on introduction to Kubernetes explaining pods, services, deployments, and cluster fundamentals for beginners."
+  }
+]

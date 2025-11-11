@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Official Docker Getting Started Guide",
+    "topic": "docker",
+    "url": "https://docs.docker.com/get-started/introduction/",
+    "content": "The official Docker documentation explaining container architecture, images, and essential CLI commands for beginners."
+  },
+  {
+    "title": "GeeksforGeeks: Introduction to Docker",
+    "topic": "docker",
+    "url": "https://www.geeksforgeeks.org/devops/introduction-to-docker/",
+    "content": "An overview of Docker, its purpose, how it differs from virtual machines, and the benefits of using container technology."
+  },
+  {
+    "title": "FreeCodeCamp: Docker for Beginners",
+    "topic": "docker",
+    "url": "https://www.freecodecamp.org/news/an-introduction-to-docker-and-containers-for-beginners/",
+    "content": "A beginner-friendly guide covering what Docker is, how containers work, and how to use them in real-world development environments."
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Google Cloud Platform Overview",
+    "topic": "cloud",
+    "url": "https://docs.cloud.google.com/docs/overview",
+    "content": "An official overview of Google Cloud Platform’s core services, infrastructure, and use cases for developers."
+  },
+  {
+    "title": "GeeksforGeeks: Google Cloud Platform Tutorial",
+    "topic": "cloud",
+    "url": "https://www.geeksforgeeks.org/devops/google-cloud-platform-tutorial/",
+    "content": "A tutorial explaining GCP’s basic components, architecture, and its role in DevOps pipelines."
+  },
+  {
+    "title": "AWS: Introduction Whitepaper",
+    "topic": "cloud",
+    "url": "https://docs.aws.amazon.com/whitepapers/latest/aws-overview/introduction.html",
+    "content": "An official AWS whitepaper describing Amazon Web Services’ core features, infrastructure, and benefits for cloud computing."
+  },
+  {
+    "title": "GeeksforGeeks: Introduction to Amazon Web Services",
+    "topic": "cloud",
+    "url": "https://www.geeksforgeeks.org/cloud-computing/introduction-to-amazon-web-services/",
+    "content": "A beginner-oriented explanation of AWS, its architecture, and commonly used services in the cloud ecosystem."
+  }
+]
