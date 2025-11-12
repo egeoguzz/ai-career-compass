@@ -1,82 +1,94 @@
-import os
 import logging
-import asyncio
-from typing import List, Optional
-
+from typing import List, Dict, Any
 import chromadb
 from sentence_transformers import SentenceTransformer
-from pydantic import BaseModel
 
-# --- 1. CONFIGURATION ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Import the single source of truth for configuration
+from config import settings
 
-CUR_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(CUR_DIR, "chroma_db")
-COLLECTION_NAME = "career_sources"
-MODEL_NAME = "all-MiniLM-L6-v2"
+# Import a data schema if needed, though returning Dicts is fine for this internal service
+# from schemas import RAGDocument
 
-
-# --- 2. DATA CONTRACT (Schema) ---
-class Source(BaseModel):
-    title: str
-    url: str
-    content: str
+logger = logging.getLogger(__name__)
 
 
-# --- 3. CORE SERVICE CLASS ---
+# --- 1. CUSTOM EXCEPTION ---
+class RAGServiceError(Exception):
+    """Custom exception for all RAG Service related errors."""
+    pass
+
+
+# --- 2. CORE SERVICE CLASS (Now fully synchronous and robust) ---
 class RAGService:
     def __init__(self):
         """
-        Initializes RAG components on creation. This is an expensive operation
-        and should only be done once at application startup.
+        Initializes RAG components. This is an expensive, blocking operation
+        that should happen only once at application startup.
+        If it fails, it will raise an exception to prevent the app from starting
+        in a broken state.
         """
-        self.model: Optional[SentenceTransformer] = None
-        self.collection: Optional[chromadb.Collection] = None
-
-        logging.info("Initializing RAGService...")
+        logger.info("Initializing RAGService...")
         try:
-            # This is a CPU-bound operation, but it's okay to run it synchronously
-            # in the constructor as it happens only once during app startup.
-            self.model = SentenceTransformer(MODEL_NAME)
+            logger.info(f"Loading SentenceTransformer model: '{settings.EMBEDDING_MODEL_NAME}'")
+            self.model: SentenceTransformer = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
 
-            client = chromadb.PersistentClient(path=DB_PATH)
-            self.collection = client.get_collection(COLLECTION_NAME)
-            logging.info("RAGService initialized successfully.")
+            logger.info(f"Connecting to ChromaDB at: '{settings.CHROMA_DB_PATH}'")
+            client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+
+            # get_collection will raise an exception if the collection does not exist,
+            # which is the desired "fail-fast" behavior.
+            self.collection: chromadb.Collection = client.get_collection(settings.RAG_COLLECTION_NAME)
+
+            count = self.collection.count()
+            if count == 0:
+                logger.warning(
+                    f"RAG collection '{self.collection.name}' is empty. The service will run but may not find any documents.")
+
+            logger.info(
+                f"RAGService initialized successfully. Collection '{self.collection.name}' contains {count} documents.")
+
         except Exception as e:
-            logging.critical(f"FATAL: RAGService failed to initialize. Error: {e}")
+            logger.critical(f"FATAL: RAGService failed to initialize. Error: {e}", exc_info=True)
+            # Re-raise as a custom exception to be handled by the main application starter.
+            raise RAGServiceError(f"RAGService could not be initialized: {e}")
 
-    async def query_sources(self, learning_objective: str, k: int = 3) -> List[Source]:
+    def query_sources(self, learning_objective: str, k: int = 3) -> List[Dict[str, Any]]:
         """
-        Asynchronously queries the vector database for relevant sources.
+        Queries the vector database for relevant sources.
+        This is a synchronous, potentially long-running (CPU/IO-bound) method.
+        It should be called from an async context (like a FastAPI endpoint)
+        using `asyncio.to_thread`.
         """
-        if self.collection is None or self.model is None:
-            logging.error("Cannot query sources because RAGService is not available.")
-            return []
-
+        logger.info(f"Querying RAG sources for: '{learning_objective}'")
         try:
-            # --- CRITICAL: Run blocking operations in a separate thread ---
-            # model.encode is CPU-bound.
-            query_embedding = await asyncio.to_thread(self.model.encode, learning_objective)
+            query_embedding = self.model.encode(learning_objective).tolist()
 
-            # collection.query can be I/O-bound.
-            results = await asyncio.to_thread(
-                self.collection.query,
-                query_embeddings=[query_embedding.tolist()],
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
                 n_results=k
             )
 
-            sources = []
+            # Safely unpack the results from ChromaDB
+            if not results or not results.get("ids", [[]])[0]:
+                logger.warning(f"No results returned from ChromaDB for query: '{learning_objective}'")
+                return []
+
+            sources: List[Dict[str, Any]] = []
             docs_list = results.get("documents", [[]])[0]
             metas_list = results.get("metadatas", [[]])[0]
 
-            if docs_list and metas_list:
-                for doc, meta in zip(docs_list, metas_list):
-                    sources.append(Source(
-                        title=meta.get("title", "No Title"),
-                        url=meta.get("url", "#"),
-                        content=doc
-                    ))
+            for doc, meta in zip(docs_list, metas_list):
+                if doc is not None and meta is not None:
+                    sources.append({
+                        "title": meta.get("title", "No Title Available"),
+                        "url": meta.get("url", "#"),
+                        "content": doc
+                    })
+
+            logger.info(f"Found {len(sources)} relevant sources for query.")
             return sources
+
         except Exception as e:
-            logging.error(f"Error during ChromaDB query for '{learning_objective}': {e}")
-            return []
+            logger.error(f"An error occurred during ChromaDB query for '{learning_objective}': {e}", exc_info=True)
+            # Do not return an empty list. Propagate the error upwards.
+            raise RAGServiceError(f"Failed to query sources for: '{learning_objective}'")
