@@ -180,7 +180,11 @@ async def update_user_progress(
     return user_progress
 
 
-@app.post("/role/validate", tags=["0. Pre-flight Checks"])
+@app.post(
+    "/role/validate",
+    response_model=schemas.RoleValidationResponse,
+    tags=["0. Pre-flight Checks"]
+)
 async def validate_role_endpoint(
         data: schemas.RoleValidationRequest,
         llm: LLMService = Depends(get_llm_service)
@@ -193,11 +197,7 @@ async def validate_role_endpoint(
         validation_result = await asyncio.to_thread(
             llm.validate_role_is_in_scope, data.role
         )
-
-        if not validation_result.get("is_in_scope", False):
-            return {"is_in_scope": False, "reason": validation_result.get("reason")}
-
-        return {"is_in_scope": True, "reason": "Role is supported."}
+        return validation_result
 
     except LLMServiceError as e:
         raise HTTPException(status_code=503, detail=f"AI service error: {e}")
