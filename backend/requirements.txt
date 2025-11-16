@@ -1,6 +1,8 @@
 # Web Framework
 fastapi
 uvicorn[standard]
+gunicorn
+python-multipart
 
 # Database
 sqlmodel
