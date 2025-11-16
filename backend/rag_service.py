@@ -1,94 +1,129 @@
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Any
-import chromadb
+from typing import Dict, Any, List
+from chromadb import Client
 from sentence_transformers import SentenceTransformer
+import os
+import json
 
-# Import the single source of truth for configuration
 from config import settings
-
-# Import a data schema if needed, though returning Dicts is fine for this internal service
-# from schemas import RAGDocument
+from schemas import RAGDocument
 
 logger = logging.getLogger(__name__)
 
 
-# --- 1. CUSTOM EXCEPTION ---
 class RAGServiceError(Exception):
-    """Custom exception for all RAG Service related errors."""
+    """Custom exception for RAG Service related errors."""
     pass
 
 
-# --- 2. CORE SERVICE CLASS (Now fully synchronous and robust) ---
 class RAGService:
+    _instance = None
+
     def __init__(self):
         """
-        Initializes RAG components. This is an expensive, blocking operation
-        that should happen only once at application startup.
-        If it fails, it will raise an exception to prevent the app from starting
-        in a broken state.
+        Initializes the RAGService with None for client and model.
+        These will be loaded lazily on first use to save memory on startup.
         """
-        logger.info("Initializing RAGService...")
-        try:
-            logger.info(f"Loading SentenceTransformer model: '{settings.EMBEDDING_MODEL_NAME}'")
-            self.model: SentenceTransformer = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
+        self.client: Client | None = None
+        self.model: SentenceTransformer | None = None
+        self.collection = None
 
-            logger.info(f"Connecting to ChromaDB at: '{settings.CHROMA_DB_PATH}'")
-            client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-
-            # get_collection will raise an exception if the collection does not exist,
-            # which is the desired "fail-fast" behavior.
-            self.collection: chromadb.Collection = client.get_collection(settings.RAG_COLLECTION_NAME)
-
-            count = self.collection.count()
-            if count == 0:
-                logger.warning(
-                    f"RAG collection '{self.collection.name}' is empty. The service will run but may not find any documents.")
-
-            logger.info(
-                f"RAGService initialized successfully. Collection '{self.collection.name}' contains {count} documents.")
-
-        except Exception as e:
-            logger.critical(f"FATAL: RAGService failed to initialize. Error: {e}", exc_info=True)
-            # Re-raise as a custom exception to be handled by the main application starter.
-            raise RAGServiceError(f"RAGService could not be initialized: {e}")
-
-    def query_sources(self, learning_objective: str, k: int = 3) -> List[Dict[str, Any]]:
+    def _lazy_initialize(self):
         """
-        Queries the vector database for relevant sources.
-        This is a synchronous, potentially long-running (CPU/IO-bound) method.
-        It should be called from an async context (like a FastAPI endpoint)
-        using `asyncio.to_thread`.
+        Performs the heavy lifting of loading the model and initializing the DB client.
+        This method is called only on the first actual use of the RAG service.
         """
-        logger.info(f"Querying RAG sources for: '{learning_objective}'")
-        try:
-            query_embedding = self.model.encode(learning_objective).tolist()
+        if self.model is None:
+            try:
+                logger.info("RAGService: First use detected, initializing client and model...")
 
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=k
-            )
+                logger.info(f"Loading sentence-transformer model ('{settings.EMBEDDING_MODEL_NAME}') into memory...")
+                self.model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
+                logger.info("Sentence-transformer model loaded successfully.")
 
-            # Safely unpack the results from ChromaDB
-            if not results or not results.get("ids", [[]])[0]:
-                logger.warning(f"No results returned from ChromaDB for query: '{learning_objective}'")
-                return []
+                self.client = Client(settings={"persist_directory": settings.CHROMA_DB_PATH})
 
-            sources: List[Dict[str, Any]] = []
-            docs_list = results.get("documents", [[]])[0]
-            metas_list = results.get("metadatas", [[]])[0]
+                self._load_or_create_db()
 
-            for doc, meta in zip(docs_list, metas_list):
-                if doc is not None and meta is not None:
-                    sources.append({
-                        "title": meta.get("title", "No Title Available"),
-                        "url": meta.get("url", "#"),
-                        "content": doc
-                    })
+            except Exception as e:
+                logger.critical(f"Failed to lazy-initialize RAG Service: {e}", exc_info=True)
+                raise RAGServiceError(e)
 
-            logger.info(f"Found {len(sources)} relevant sources for query.")
-            return sources
+    def _load_or_create_db(self):
+        """Loads an existing ChromaDB collection or creates a new one if not found."""
+        if not self.client: return
 
-        except Exception as e:
-            logger.error(f"An error occurred during ChromaDB query for '{learning_objective}': {e}", exc_info=True)
-            # Do not return an empty list. Propagate the error upwards.
-            raise RAGServiceError(f"Failed to query sources for: '{learning_objective}'")
+        collection_names = [c.name for c in self.client.list_collections()]
+        if settings.RAG_COLLECTION_NAME in collection_names:
+            logger.info(f"Loading existing ChromaDB collection: '{settings.RAG_COLLECTION_NAME}'")
+            self.collection = self.client.get_collection(name=settings.RAG_COLLECTION_NAME)
+        else:
+            logger.info(f"Creating new ChromaDB collection: '{settings.RAG_COLLECTION_NAME}'")
+            self.collection = self.client.create_collection(name=settings.RAG_COLLECTION_NAME)
+            self._populate_db()
+
+    def _populate_db(self):
+        """Reads JSON files from rag_data and populates the ChromaDB collection."""
+        if not self.collection or not self.model: return
+
+        logger.info("Populating collection with data from rag_data directory...")
+        documents: List[RAGDocument] = []
+        for filename in os.listdir(settings.RAG_DATA_PATH):
+            if filename.endswith(".json"):
+                filepath = os.path.join(settings.RAG_DATA_PATH, filename)
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for item in data:
+                        item['source_file'] = filename
+                        documents.append(RAGDocument(**item))
+
+        if not documents:
+            logger.warning("No documents found to populate the RAG database.")
+            return
+
+        self.collection.add(
+            ids=[f"doc_{i}" for i in range(len(documents))],
+            documents=[doc.content for doc in documents],
+            metadatas=[doc.model_dump(exclude={'content'}) for doc in documents]
+        )
+        logger.info(f"Successfully added {len(documents)} documents to the collection.")
+
+    def query_and_assess_sources(self, query: str, k: int = 2) -> Dict[str, Any]:
+        """
+        Queries the vector DB, assesses relevance, and returns sources with a confidence level.
+        This is the main public method for this service.
+        """
+        self._lazy_initialize()
+
+        if not self.collection:
+            logger.error("RAG collection is not available for querying.")
+            return {"relevant_sources": [], "confidence": "low"}
+
+        logger.info(f"Querying RAG for: '{query}'")
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=k,
+            include=["metadatas", "documents", "distances"]
+        )
+
+        sources = []
+        distances = results.get('distances', [[]])[0]
+
+        RELEVANCE_THRESHOLD = 1.0
+
+        if not distances or distances[0] > RELEVANCE_THRESHOLD:
+            logger.warning(
+                f"Low confidence for RAG query: '{query}'. Best distance: {distances[0] if distances else 'N/A'}")
+            return {"relevant_sources": [], "confidence": "low"}
+
+        for i, doc_content in enumerate(results['documents'][0]):
+            meta = results['metadatas'][0][i]
+            sources.append({
+                "title": meta.get("title", "Unknown Source"),
+                "url": meta.get("url", "#"),
+                "content": doc_content
+            })
+
+        return {"relevant_sources": sources, "confidence": "high"}
