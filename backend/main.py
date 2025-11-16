@@ -16,26 +16,22 @@ from database import get_session, create_db_and_tables
 from models import UserProgress
 import schemas
 
-# --- 1. Service Initialization (Fail-Fast at Startup) ---
-# Services are instantiated ONCE when the module is loaded.
-# If any service fails to initialize (e.g., missing API key, DB not found),
-# the entire application will fail to start. This is the desired behavior.
-try:
-    llm_service = LLMService()
-    rag_service = RAGService()
-except (LLMServiceError, RAGServiceError) as e:
-    logging.critical(f"A critical service failed to initialize: {e}")
-    # In a real-world scenario, you might exit or prevent the app from being served.
-    raise
-
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Handles application startup: database initialization."""
-    logging.info("Application startup: Initializing database...")
+    """
+    Handles application startup and shutdown.
+    Services are created here and attached to the app state.
+    """
+    logging.info("Application startup: Initializing services...")
+    app.state.llm_service = LLMService()
+    app.state.rag_service = RAGService()
+    logging.info("Initializing database...")
     create_db_and_tables()
-    logging.info("Database initialized successfully.")
+    logging.info("Startup complete. Services and DB are ready.")
+    
     yield
+    
     logging.info("Application shutdown.")
 
 
@@ -43,7 +39,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="AI Career Compass API",
     description="A service to analyze CVs and generate personalized career roadmaps.",
-    version="2.0.0",  # Version bump to reflect major refactoring
+    version="2.1.0",  # Version bump to reflect major refactoring
     lifespan=lifespan
 )
 
@@ -58,12 +54,12 @@ app.add_middleware(
 
 
 # Dependencies to provide service singletons to endpoints
-def get_llm_service():
-    return llm_service
+def get_llm_service(request: Request) -> LLMService:
+    return request.app.state.llm_service
 
+def get_rag_service(request: Request) -> RAGService:
+    return request.app.state.rag_service
 
-def get_rag_service():
-    return rag_service
 
 
 # --- 3. API Endpoints (Refactored and Hardened) ---
