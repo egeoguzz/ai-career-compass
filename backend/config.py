@@ -13,15 +13,6 @@ class Settings(BaseSettings):
     This class provides a single, validated source of truth for configuration.
     """
 
-    # --- Database Settings ---
-    # Defines the connection URL for the database.
-    # Defaults to a local SQLite file if not set in the environment.
-    DATABASE_URL: str = f"sqlite:///{os.path.join(BACKEND_DIR, 'career_compass.db')}"
-
-    # Controls whether SQLAlchemy prints all generated SQL statements.
-    # Should be False in production for performance and security.
-    ECHO_SQL: bool = False
-
     # --- RAG and Vector DB Settings ---
     # Path to the directory containing JSON files for the RAG system.
     RAG_DATA_PATH: str = os.path.join(BACKEND_DIR, "rag_data")

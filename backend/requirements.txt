@@ -1,16 +1,15 @@
 # Web Framework
 fastapi
 uvicorn[standard]
+python-multipart
+gunicorn
 
-# Database
-sqlmodel
-
-# AI and LLM Services
+# AI / LLM Services
 groq
 openai
 pydantic-settings
 
-# RAG and Vector Database
+# RAG / Vector Search
 chromadb
 sentence-transformers
 

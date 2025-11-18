@@ -39,17 +39,21 @@ def handle_llm_errors(func):
 # --- CORE SERVICE CLASS ---
 class LLMService:
     def __init__(self):
+        self.client = None
+
         if not settings.GROQ_API_KEY:
-            logger.critical("GROQ_API_KEY is not set in environment variables.")
-            # Fail fast and loud.
-            raise ValueError("API key for LLM service is missing.")
-        try:
-            self.client = OpenAI(api_key=settings.GROQ_API_KEY, base_url=settings.LLM_BASE_URL)
-            self.client.models.list()  # Make a simple test call to validate credentials
-            logger.info("LLMService initialized and connection verified successfully.")
-        except OpenAIError as e:
-            logger.critical(f"OpenAI client could not be initialized or authenticated. Error: {e}")
-            raise LLMServiceError(f"Failed to connect to LLM provider: {e}")
+            raise ValueError("GROQ_API_KEY is missing from environment variables.")
+
+    def _init_client(self):
+        """Lazy initialize the LLM client only when needed."""
+        if self.client is None:
+            try:
+                self.client = OpenAI(
+                    api_key=settings.GROQ_API_KEY,
+                    base_url=settings.LLM_BASE_URL
+                )
+            except Exception as e:
+                raise LLMServiceError(f"Failed to initialize LLM client: {e}")
 
     def _load_prompt_template(self, filename: str) -> str:
         filepath = os.path.join(settings.PROMPTS_PATH, filename)
@@ -65,6 +69,7 @@ class LLMService:
 
     @handle_llm_errors
     def extract_profile_from_cv(self, cv_text: str) -> ExtractedProfile:
+        self._init_client()
         logger.info("Starting profile extraction from CV.")
         template = self._load_prompt_template('extract_profile_from_cv.txt')
         prompt = template.format(cv_text=cv_text)
@@ -80,6 +85,7 @@ class LLMService:
 
     @handle_llm_errors
     def generate_career_advice(self, profile: ExtractedProfile, role: str, level: str) -> CareerAdviceResponse:
+        self._init_client()
         logger.info(f"Generating career advice for role: {role}")
         template = self._load_prompt_template('generate_career_advice.txt')
         # Pass the Pydantic object, serialize to JSON inside the method.
@@ -97,6 +103,7 @@ class LLMService:
 
     @handle_llm_errors
     def generate_resource_recommendation(self, learning_objective: str, sources: List[Dict[str, Any]]) -> ResourceRecommendation:
+        self._init_client()
         logger.info(f"Generating resource recommendation for: '{learning_objective}'")
         if not sources:
             logger.warning(f"No sources provided for learning objective: '{learning_objective}'")
@@ -123,6 +130,7 @@ class LLMService:
 
     @handle_llm_errors
     def validate_role_is_in_scope(self, role: str) -> Dict[str, Any]:
+        self._init_client()
         """
         Uses an LLM to check if the user's target role is within the app's scope.
         """

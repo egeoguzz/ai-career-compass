@@ -1,19 +1,14 @@
 import asyncio
 import logging
-import uuid
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session
 
 # --- Project Module Imports ---
 # Import robust services, schemas, models, and exceptions
 from cv_parser import parse_cv, CVParserError
 from llm_service import LLMService, LLMServiceError
 from rag_service import RAGService, RAGServiceError
-from database import get_session, create_db_and_tables
-from models import UserProgress
 import schemas
 
 # --- 1. Service Initialization (Fail-Fast at Startup) ---
@@ -28,34 +23,20 @@ except (LLMServiceError, RAGServiceError) as e:
     # In a real-world scenario, you might exit or prevent the app from being served.
     raise
 
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """Handles application startup: database initialization."""
-    logging.info("Application startup: Initializing database...")
-    create_db_and_tables()
-    logging.info("Database initialized successfully.")
-    yield
-    logging.info("Application shutdown.")
-
-
 # --- 2. FastAPI App Instantiation & Dependencies ---
 app = FastAPI(
     title="AI Career Compass API",
     description="A service to analyze CVs and generate personalized career roadmaps.",
     version="2.0.0",  # Version bump to reflect major refactoring
-    lifespan=lifespan
 )
 
 app.add_middleware(
     CORSMiddleware,
-    # In production, restrict this to your actual frontend URL
-    allow_origins=["http://localhost:3000", "YOUR_FRONTEND_URL"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # Dependencies to provide service singletons to endpoints
 def get_llm_service():
@@ -113,7 +94,7 @@ async def generate_advice_endpoint(
         for week in plan.personalized_learning_path:
             for objective in week.get("learning_objectives", []):
                 # Correctly wrap the synchronous call in to_thread for each task
-                tasks.append(asyncio.to_thread(rag.query_sources, objective, k=2))
+                tasks.append(asyncio.to_thread(rag.query_and_assess_sources, objective, k=2))
 
         if tasks:
             rag_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -138,46 +119,6 @@ async def generate_advice_endpoint(
     except Exception as e:
         logging.error(f"Unexpected error in advice generation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected internal error occurred.")
-
-
-@app.post("/progress", response_model=schemas.UserProgressResponse, status_code=201, tags=["3. User Progress"])
-async def create_user_progress(
-        progress_data: schemas.UserProgressCreate,
-        session: Session = Depends(get_session)
-):
-    """Creates a new user progress entry and returns its unique ID."""
-    new_progress = UserProgress.model_validate(progress_data)  # Create DB model from schema
-    session.add(new_progress)
-    session.commit()
-    session.refresh(new_progress)
-    return new_progress
-
-
-@app.get("/progress/{progress_id}", response_model=schemas.UserProgressResponse, tags=["3. User Progress"])
-async def get_user_progress(progress_id: uuid.UUID, session: Session = Depends(get_session)):
-    """Retrieves a user's progress using their unique ID."""
-    user_progress = session.get(UserProgress, progress_id)
-    if not user_progress:
-        raise HTTPException(status_code=404, detail="Progress not found for the given ID.")
-    return user_progress
-
-
-@app.put("/progress/{progress_id}", response_model=schemas.UserProgressResponse, tags=["3. User Progress"])
-async def update_user_progress(
-        progress_id: uuid.UUID,
-        update_data: schemas.UserProgressUpdate,
-        session: Session = Depends(get_session)
-):
-    """Updates the completed weeks for a user."""
-    user_progress = session.get(UserProgress, progress_id)
-    if not user_progress:
-        raise HTTPException(status_code=404, detail="Progress not found for the given ID.")
-
-    user_progress.completed_weeks = update_data.completed_weeks
-    session.add(user_progress)
-    session.commit()
-    session.refresh(user_progress)
-    return user_progress
 
 
 @app.post(
