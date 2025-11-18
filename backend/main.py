@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # --- Project Module Imports ---
@@ -39,12 +39,12 @@ app.add_middleware(
 )
 
 # Dependencies to provide service singletons to endpoints
-def get_llm_service():
-    return llm_service
+def get_llm_service(request: Request) -> LLMService:
+    return request.app.state.llm_service
 
+def get_rag_service(request: Request) -> RAGService:
+    return request.app.state.rag_service
 
-def get_rag_service():
-    return rag_service
 
 
 # --- 3. API Endpoints (Refactored and Hardened) ---
